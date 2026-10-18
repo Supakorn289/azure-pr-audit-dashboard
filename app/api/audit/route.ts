@@ -161,16 +161,10 @@ export async function GET(request: Request) {
       );
     }
 
-    // 4. ประมวลผลและจัดหมวดหมู่แต่ละ Work Item
+    // 4. Include ALL assignees. Keep original Coding Complete + ExternalLinkCount > 0 criteria.
+    // Work Item passes only if every linked PR is completed. Mixed PR states remain visible.
     const items = allWorkItems.map((wi) => {
       const assignedTo = wi.fields?.["System.AssignedTo"]?.displayName || "Unassigned";
-      const assignedEmail = wi.fields?.["System.AssignedTo"]?.uniqueName || "";
-      const isTargetAssignee =
-        /watcharanon/i.test(assignedTo) ||
-        /watcharanon/i.test(assignedEmail) ||
-        /biw piyanut/i.test(assignedTo) ||
-        /piyanut/i.test(assignedTo);
-
       const relations = wi.relations || [];
       const artifactLinks = relations.filter((r: any) => r.rel === "ArtifactLink");
       const prLinks = artifactLinks.filter(
@@ -186,24 +180,27 @@ export async function GET(request: Request) {
         (r: any) => r.attributes?.name || "Link"
       );
 
-      const prs: PRInfo[] = prLinks.map((prLink: any) => {
+      // Deduplicate PR links on a single Work Item before calculating pass/fail.
+      const prsByKey = new Map<string, PRInfo>();
+      for (const prLink of prLinks) {
         const decodedUrl = decodeURIComponent(prLink.url);
         const parts = decodedUrl.split("/");
         const prId = parts[parts.length - 1];
         const repoId = parts[parts.length - 2];
         const prProjId = parts[parts.length - 3];
         const key = `${prProjId}/${repoId}/${prId}`;
-        return (
-          prDetailsCache.get(key) || {
+        if (!prsByKey.has(key)) {
+          prsByKey.set(key, prDetailsCache.get(key) || {
             prId,
             repoId,
             projectId: prProjId,
             repoName: "Unknown",
             status: "unknown",
             url: "#",
-          }
-        );
-      });
+          });
+        }
+      }
+      const prs = Array.from(prsByKey.values());
 
       let categoryCode: "PASSED" | "ACTIVE" | "ABANDONED" | "NO_PR" | "ERROR" = "NO_PR";
       let categoryLabel = "4. ไม่มี PR (มีเฉพาะ Commit/Branch)";
@@ -235,7 +232,6 @@ export async function GET(request: Request) {
         title: wi.fields?.["System.Title"] || "",
         state: wi.fields?.["System.State"] || "",
         assignedTo,
-        isTargetAssignee,
         releaseVersion: wi.fields?.["Custom.ReleaseVersion"] || wi.fields?.["Microsoft.VSTS.Common.ReleaseVersion"] || "-",
         workItemUrl: `https://dev.azure.com/${org}/${project}/_workitems/edit/${wi.id}`,
         categoryCode,
@@ -255,7 +251,8 @@ export async function GET(request: Request) {
       totalProjectItems: items.length,
       items,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Azure DevOps audit failed", error);
     return NextResponse.json(
       { error: "Azure DevOps audit failed unexpectedly. Check the server logs." },
       { status: 500 }

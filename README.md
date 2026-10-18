@@ -1,44 +1,38 @@
-# scope. — Azure DevOps Coding Complete Audit Dashboard
+# Infogrammer — Coding Complete Desk (v3.1)
 
-Next.js 14 + Tailwind CSS dashboard focused on the real Azure DevOps `Coding Complete` + Pull Request audit workflow.
+Internal Azure DevOps audit dashboard for Infogrammer Co., Ltd. using the supplied NFO brand asset.
 
-## Run locally
+## Purpose
 
-```bash
-cp .env.example .env.local
-# Edit .env.local with your Azure DevOps organization, project, and PAT
-npm ci
+Show the number of Work Items where **all** attached PRs are Completed, the outstanding Work Items, all linked PR states, and the people responsible. Includes search, filters, paginated detail expansion, and CSV download.
+
+## Audit contract
+
+Work Items in scope: `System.TeamProject = AZURE_DEVOPS_PROJECT`, `System.State = Coding Complete`, `System.ExternalLinkCount > 0` for **every assignee**. PRs are counted distinctly by project/repository/PR ID. A Work Item is Completed only if it has at least one PR and **every** associated PR is Completed. "No PR" is not itself a PR status; it counts Work Items with no attached PR.
+
+The REST API is unchanged. The audit model now produces a **mutually exclusive Work Item status distribution** (`PASSED`, `ACTIVE`, `ABANDONED`, `NO_PR`, `ERROR`) in addition to distinct PR-status counts. Work-item buckets sum to the Work Item total, and PR-status buckets sum to the distinct PR total; the two denominators are never mixed.
+
+A PR can be linked to several Work Items, and a Work Item can have several PRs. For example, 86 Work Items can legitimately comprise 14 fully completed and 72 still pending, while 19 distinct PRs are completed and 75 are active. A PR:completed membership filter could also match 26 Work Items in that data; it must never be labeled as the number of fully completed Work Items.
+
+Main view counts and status filters use Work Item units. The secondary PR status line uses PR units and is informational (not a Work Item count filter).
+
+## Run / deploy
+
+For new checkouts you need a `package-lock.json` created by `npm install`, or use the PATCH zip to preserve the lockfile from your existing repository.
+
+```sh
+cp .env.example .env.local  # fill organization, project and read-only PAT
+npm install                 # only for a new checkout without a lockfile
+npm run test
+npx tsc --noEmit
+npm run build
 npm run dev
 ```
 
-Open http://localhost:3000 for **real Azure data** or http://localhost:3000/?demo=1 for **explicitly labeled synthetic preview data** (no Azure token required).
+Use `/?demo=1` for labeled synthetic data; `/` for Azure DevOps. Never commit `.env.local` or a PAT.
 
-## UI functions
+This dashboard does not implement application authentication. Configure Vercel Deployment Protection or another appropriate access-control mechanism before exposing production data. See `DESIGN.md` and `PATCH_INSTRUCTIONS.md`.
 
-- Overview: audit pass-rate, work-item counts, PR status, and reconciliation by audit category.
-- Follow-up queue: prioritizes audit errors, abandoned PR, missing PR, and active PR.
-- Individual assignee and target-team filter; click-to-filter KPI cards and status breakdown.
-- Search by work-item ID, title, owner, release, repository, PR ID or PR title; sorting, paging, and expandable PR details.
-- Export the currently filtered rows to UTF-8 BOM CSV (Excel compatible), with CSV formula injection protection.
-- Real connection failures are displayed. **No automatic fake data fallback.**
+## Quality gate
 
-## Important scope semantics
-
-Original backend criteria are retained: `State = Coding Complete` **and** `ExternalLinkCount > 0`. Therefore dashboard totals are not the total number of all Coding Complete work items; work items with zero external links are outside the audit. The "team being followed" comes from the existing name matcher in `app/api/audit/route.ts`, not an Azure security group.
-
-The statuses `PASSED`, `ACTIVE`, `ABANDONED`, `NO_PR`, `ERROR` are mutually exclusive based on PR reconciliation rules. Coding Complete on the Work Item does **not** imply that PRs are merged. The dashboard is read-only with respect to Azure DevOps.
-
-## Security and deployment
-
-- **The original uploaded ZIP included a `.env.local` file**; this package deliberately excludes it. Do not publish local `.env` credentials or your original archive. If that file contains a real PAT and was shared externally, revoke/rotate it.
-- PAT must remain server-only in environment variables. Use a minimally scoped read-only token and add authentication/network restrictions before publishing this dashboard.
-- API currently reads Azure work items/PRs with a server-side PAT. Restrict access to trusted users. CORS is not a substitute for authentication.
-- After `npm run build`, deploy using the usual Next.js / Vercel process and configure `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_PAT` in the platform's server environment settings.
-- `?demo=1` intentionally uses fixed, visibly labeled sample items; it never writes to Azure.
-
-## Quality checks
-
-```bash
-npx tsc --noEmit
-npm run build
-```
+Audit-model tests checked locally (7/7), including the explicit 86/14/72/94/19/75/26 reconciliation fixture. TSX syntax transpilation checked. A full Next.js production build and live Azure/Vercel integration require a clean `npm install`/`npm ci` in the deployment environment; they have not been confirmed in this sandbox.
